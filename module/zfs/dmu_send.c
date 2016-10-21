@@ -169,10 +169,15 @@ dump_record(dmu_sendarg_t *dsp, void *payload, int payload_len)
 	fletcher_4_incremental_native(dsp->dsa_drr,
 	    offsetof(dmu_replay_record_t, drr_u.drr_checksum.drr_checksum),
 	    &dsp->dsa_zc);
-	if (dsp->dsa_drr->drr_type != DRR_BEGIN) {
+	if (dsp->dsa_drr->drr_type == DRR_BEGIN) {
+		dsp->dsa_sent_begin = B_TRUE;
+	} else {
 		ASSERT(ZIO_CHECKSUM_IS_ZERO(&dsp->dsa_drr->drr_u.
 		    drr_checksum.drr_checksum));
 		dsp->dsa_drr->drr_u.drr_checksum.drr_checksum = dsp->dsa_zc;
+	}
+	if (dsp->dsa_drr->drr_type == DRR_END) {
+		dsp->dsa_sent_end = B_TRUE;
 	}
 	fletcher_4_incremental_native(&dsp->dsa_drr->
 	    drr_u.drr_checksum.drr_checksum,
@@ -341,7 +346,8 @@ dump_write(dmu_sendarg_t *dsp, dmu_object_type_t type,
 		drrw->drr_checksumtype = ZIO_CHECKSUM_OFF;
 	} else {
 		drrw->drr_checksumtype = BP_GET_CHECKSUM(bp);
-		if (zio_checksum_table[drrw->drr_checksumtype].ci_dedup)
+		if (zio_checksum_table[drrw->drr_checksumtype].ci_flags &
+		    ZCHECKSUM_FLAG_DEDUP)
 			drrw->drr_checksumflags |= DRR_CHECKSUM_DEDUP;
 		DDK_SET_LSIZE(&drrw->drr_key, BP_GET_LSIZE(bp));
 		DDK_SET_PSIZE(&drrw->drr_key, BP_GET_PSIZE(bp));
@@ -978,6 +984,8 @@ out:
 	mutex_enter(&to_ds->ds_sendstream_lock);
 	list_remove(&to_ds->ds_sendstreams, dsp);
 	mutex_exit(&to_ds->ds_sendstream_lock);
+
+	VERIFY(err != 0 || (dsp->dsa_sent_begin && dsp->dsa_sent_end));
 
 	kmem_free(drr, sizeof (dmu_replay_record_t));
 	kmem_free(dsp, sizeof (dmu_sendarg_t));

@@ -168,6 +168,7 @@ parse_args(int argc, char **argv)
 			break;
 		case 'p':
 			strncpy(path, optarg, PATH_MAX);
+			path[PATH_MAX - 1] = '\0';
 			break;
 		case 'c':
 			synccaches = 1;
@@ -177,6 +178,7 @@ parse_args(int argc, char **argv)
 			break;
 		case 't':
 			strncpy(script, optarg, PATH_MAX);
+			script[PATH_MAX - 1] = '\0';
 			break;
 		case 'e':
 			seed = strtol(optarg, NULL, 0);
@@ -252,6 +254,7 @@ drop_caches(void)
 	rc = write(fd, "3", 1);
 	if ((rc == -1) || (rc != 1)) {
 		ERROR("Error %d: write(%d, \"3\", 1)\n", errno, fd);
+		(void) close(fd);
 		return (errno);
 	}
 
@@ -630,6 +633,7 @@ unlink_files(void)
 		rc = unlink(file);
 		if ((rc == -1) && (errno != ENOENT)) {
 			ERROR("Error %d: unlink(%s)\n", errno, file);
+			free(file);
 			return (errno);
 		}
 	}

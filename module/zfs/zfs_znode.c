@@ -456,7 +456,7 @@ zfs_inode_set_ops(zfs_sb_t *zsb, struct inode *ip)
 	 */
 	case S_IFCHR:
 	case S_IFBLK:
-		sa_lookup(ITOZ(ip)->z_sa_hdl, SA_ZPL_RDEV(zsb), &rdev,
+		(void) sa_lookup(ITOZ(ip)->z_sa_hdl, SA_ZPL_RDEV(zsb), &rdev,
 		    sizeof (rdev));
 		/*FALLTHROUGH*/
 	case S_IFIFO:
@@ -476,25 +476,6 @@ zfs_inode_set_ops(zfs_sb_t *zsb, struct inode *ip)
 		ip->i_mapping->a_ops = &zpl_address_space_operations;
 		break;
 	}
-}
-
-void
-zfs_set_inode_flags(znode_t *zp, struct inode *ip)
-{
-	/*
-	 * Linux and Solaris have different sets of file attributes, so we
-	 * restrict this conversion to the intersection of the two.
-	 */
-
-	if (zp->z_pflags & ZFS_IMMUTABLE)
-		ip->i_flags |= S_IMMUTABLE;
-	else
-		ip->i_flags &= ~S_IMMUTABLE;
-
-	if (zp->z_pflags & ZFS_APPENDONLY)
-		ip->i_flags |= S_APPEND;
-	else
-		ip->i_flags &= ~S_APPEND;
 }
 
 /*
@@ -523,8 +504,6 @@ zfs_inode_update(znode_t *zp)
 	dmu_object_size_from_db(sa_get_db(zp->z_sa_hdl), &blksize, &i_blocks);
 
 	spin_lock(&ip->i_lock);
-	ip->i_mode = zp->z_mode;
-	zfs_set_inode_flags(zp, ip);
 	ip->i_blocks = i_blocks;
 	i_size_write(ip, zp->z_size);
 	spin_unlock(&ip->i_lock);
@@ -604,7 +583,7 @@ zfs_znode_alloc(zfs_sb_t *zsb, dmu_buf_t *db, int blksz,
 		goto error;
 	}
 
-	zp->z_mode = mode;
+	zp->z_mode = ip->i_mode = mode;
 	ip->i_generation = (uint32_t)tmp_gen;
 	ip->i_blkbits = SPA_MINBLOCKSHIFT;
 	set_nlink(ip, (uint32_t)links);
@@ -917,7 +896,7 @@ zfs_mknode(znode_t *dzp, vattr_t *vap, dmu_tx_t *tx, cred_t *cr,
 	}
 
 	(*zpp)->z_pflags = pflags;
-	(*zpp)->z_mode = mode;
+	(*zpp)->z_mode = ZTOI(*zpp)->i_mode = mode;
 	(*zpp)->z_dnodesize = dnodesize;
 
 	if (obj_type == DMU_OT_ZNODE ||
@@ -947,6 +926,7 @@ zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx)
 		    &times, sizeof (times), tx);
 		XVA_SET_RTN(xvap, XAT_CREATETIME);
 	}
+
 	if (XVA_ISSET_REQ(xvap, XAT_READONLY)) {
 		ZFS_ATTR_SET(zp, ZFS_READONLY, xoap->xoa_readonly,
 		    zp->z_pflags, tx);
@@ -971,7 +951,12 @@ zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx)
 		ZFS_ATTR_SET(zp, ZFS_IMMUTABLE, xoap->xoa_immutable,
 		    zp->z_pflags, tx);
 		XVA_SET_RTN(xvap, XAT_IMMUTABLE);
+
+		ZTOI(zp)->i_flags |= S_IMMUTABLE;
+	} else {
+		ZTOI(zp)->i_flags &= ~S_IMMUTABLE;
 	}
+
 	if (XVA_ISSET_REQ(xvap, XAT_NOUNLINK)) {
 		ZFS_ATTR_SET(zp, ZFS_NOUNLINK, xoap->xoa_nounlink,
 		    zp->z_pflags, tx);
@@ -981,7 +966,13 @@ zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx)
 		ZFS_ATTR_SET(zp, ZFS_APPENDONLY, xoap->xoa_appendonly,
 		    zp->z_pflags, tx);
 		XVA_SET_RTN(xvap, XAT_APPENDONLY);
+
+		ZTOI(zp)->i_flags |= S_APPEND;
+	} else {
+
+		ZTOI(zp)->i_flags &= ~S_APPEND;
 	}
+
 	if (XVA_ISSET_REQ(xvap, XAT_NODUMP)) {
 		ZFS_ATTR_SET(zp, ZFS_NODUMP, xoap->xoa_nodump,
 		    zp->z_pflags, tx);
@@ -1214,7 +1205,7 @@ zfs_rezget(znode_t *zp)
 		return (SET_ERROR(EIO));
 	}
 
-	zp->z_mode = mode;
+	zp->z_mode = ZTOI(zp)->i_mode = mode;
 	zfs_uid_write(ZTOI(zp), z_uid);
 	zfs_gid_write(ZTOI(zp), z_gid);
 
@@ -1234,6 +1225,7 @@ zfs_rezget(znode_t *zp)
 	zp->z_blksz = doi.doi_data_block_size;
 	zp->z_atime_dirty = 0;
 	zfs_inode_update(zp);
+
 
 	zfs_znode_hold_exit(zsb, zh);
 

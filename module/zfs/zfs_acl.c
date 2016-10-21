@@ -1166,7 +1166,8 @@ zfs_acl_chown_setattr(znode_t *zp)
 
 	error = zfs_acl_node_read(zp, B_TRUE, &aclp, B_FALSE);
 	if (error == 0 && aclp->z_acl_count > 0)
-		zp->z_mode = zfs_mode_compute(zp->z_mode, aclp,
+		zp->z_mode = ZTOI(zp)->i_mode =
+		    zfs_mode_compute(zp->z_mode, aclp,
 		    &zp->z_pflags, KUID_TO_SUID(ZTOI(zp)->i_uid),
 		    KGID_TO_SGID(ZTOI(zp)->i_gid));
 
@@ -1328,7 +1329,7 @@ zfs_aclset_common(znode_t *zp, zfs_acl_t *aclp, cred_t *cr, dmu_tx_t *tx)
 	mode = zfs_mode_compute(mode, aclp, &zp->z_pflags,
 	    KUID_TO_SUID(ZTOI(zp)->i_uid), KGID_TO_SGID(ZTOI(zp)->i_gid));
 
-	zp->z_mode = mode;
+	zp->z_mode = ZTOI(zp)->i_mode = mode;
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_MODE(zsb), NULL,
 	    &mode, sizeof (mode));
 	SA_ADD_BULK_ATTR(bulk, count, SA_ZPL_FLAGS(zsb), NULL,
@@ -1885,7 +1886,9 @@ boolean_t
 zfs_acl_ids_overquota(zfs_sb_t *zsb, zfs_acl_ids_t *acl_ids)
 {
 	return (zfs_fuid_overquota(zsb, B_FALSE, acl_ids->z_fuid) ||
-	    zfs_fuid_overquota(zsb, B_TRUE, acl_ids->z_fgid));
+	    zfs_fuid_overquota(zsb, B_TRUE, acl_ids->z_fgid) ||
+	    zfs_fuid_overobjquota(zsb, B_FALSE, acl_ids->z_fuid) ||
+	    zfs_fuid_overobjquota(zsb, B_TRUE, acl_ids->z_fgid));
 }
 
 /*
