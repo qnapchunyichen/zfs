@@ -1833,6 +1833,33 @@ dsl_scan_scrub_done(zio_t *zio)
 	mutex_exit(&spa->spa_scrub_lock);
 }
 
+static boolean_t
+dsl_scan_need_resilver(spa_t *spa, const dva_t *dva, size_t size, uint64_t phys_birth)
+{
+	vdev_t *vd;
+
+	if (DVA_GET_GANG(dva)) {
+		/*
+		 * Gang members may be spread across multiple
+		 * vdevs, so the best estimate we have is the
+		 * scrub range, which has already been checked.
+		 * XXX -- it would be better to change our
+		 * allocation policy to ensure that all
+		 * gang members reside on the same vdev.
+		 */
+		return (B_TRUE);
+	}
+
+	vd = vdev_lookup_top(spa, DVA_GET_VDEV(dva));
+	if (!vdev_dtl_contains(vd, DTL_PARTIAL, phys_birth, 1))
+		return (B_FALSE);
+
+	if (vd->vdev_ops == &vdev_raidz_ops)
+		return vdev_raidz_need_resilver(vd, DVA_GET_OFFSET(dva), size);
+
+	return (B_TRUE);
+}
+
 static int
 dsl_scan_scrub_cb(dsl_pool_t *dp,
     const blkptr_t *bp, const zbookmark_phys_t *zb)
@@ -1872,33 +1899,18 @@ dsl_scan_scrub_cb(dsl_pool_t *dp,
 		zio_flags |= ZIO_FLAG_SPECULATIVE;
 
 	for (d = 0; d < BP_GET_NDVAS(bp); d++) {
-		vdev_t *vd = vdev_lookup_top(spa,
-		    DVA_GET_VDEV(&bp->blk_dva[d]));
+		const dva_t *dva = &bp->blk_dva[d];
 
 		/*
 		 * Keep track of how much data we've examined so that
 		 * zpool(1M) status can make useful progress reports.
 		 */
-		scn->scn_phys.scn_examined += DVA_GET_ASIZE(&bp->blk_dva[d]);
-		spa->spa_scan_pass_exam += DVA_GET_ASIZE(&bp->blk_dva[d]);
+		scn->scn_phys.scn_examined += DVA_GET_ASIZE(dva);
+		spa->spa_scan_pass_exam += DVA_GET_ASIZE(dva);
 
 		/* if it's a resilver, this may not be in the target range */
-		if (!needs_io) {
-			if (DVA_GET_GANG(&bp->blk_dva[d])) {
-				/*
-				 * Gang members may be spread across multiple
-				 * vdevs, so the best estimate we have is the
-				 * scrub range, which has already been checked.
-				 * XXX -- it would be better to change our
-				 * allocation policy to ensure that all
-				 * gang members reside on the same vdev.
-				 */
-				needs_io = B_TRUE;
-			} else {
-				needs_io = vdev_dtl_contains(vd, DTL_PARTIAL,
-				    phys_birth, 1);
-			}
-		}
+		if (!needs_io)
+			needs_io = dsl_scan_need_resilver(spa, dva, size, phys_birth);
 	}
 
 	if (needs_io && !zfs_no_scrub_io) {

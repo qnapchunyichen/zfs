@@ -1440,6 +1440,38 @@ vdev_raidz_child_done(zio_t *zio)
 	rc->rc_skipped = 0;
 }
 
+boolean_t
+vdev_raidz_need_resilver(vdev_t *vd, uint64_t offset, size_t psize)
+{
+	uint64_t unit_shift = vd->vdev_top->vdev_ashift;
+	uint64_t dcols = vd->vdev_children;
+	uint64_t nparity = vd->vdev_nparity;
+	uint64_t b = offset >> unit_shift;
+	uint64_t s = ((psize - 1) >> unit_shift) + 1;
+	/* The first column for this stripe. */
+	uint64_t f = b % dcols;
+	uint64_t c, devidx;
+
+	if (s + nparity >= dcols) /* spans all child vdevs */
+		return (B_TRUE);
+
+	for (c = 0; c < s + nparity; c++) {
+		vdev_t *cvd;
+
+		/*
+		 * dsl_scan_need_resilver() already checked vd with
+		 * vdev_dtl_contains(). So here just check cvd with
+		 * vdev_dtl_empty(), cheaper and a good approximation.
+		 */
+		devidx = (f + c) % dcols;
+		cvd = vd->vdev_child[devidx];
+		if (!vdev_dtl_empty(cvd, DTL_PARTIAL))
+			return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
 /*
  * Start an IO operation on a RAIDZ VDev
  *
