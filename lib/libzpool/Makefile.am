@@ -101,6 +101,7 @@ KERNEL_C = \
 	uberblock.c \
 	unique.c \
 	vdev.c \
+	vdev_scan.c \
 	vdev_cache.c \
 	vdev_file.c \
 	vdev_label.c \
@@ -117,6 +118,7 @@ KERNEL_C = \
 	vdev_raidz_math_avx512bw.c \
 	vdev_raidz_math_aarch64_neon.c \
 	vdev_raidz_math_aarch64_neonx2.c \
+	vdev_draid.c \
 	vdev_root.c \
 	zap.c \
 	zap_leaf.c \

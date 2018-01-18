@@ -310,6 +310,7 @@ struct metaslab_group {
  */
 struct metaslab {
 	kmutex_t	ms_lock;
+	kmutex_t	ms_sync_lock;
 	kcondvar_t	ms_load_cv;
 	space_map_t	*ms_sm;
 	uint64_t	ms_id;
@@ -338,6 +339,7 @@ struct metaslab {
 	 */
 	boolean_t	ms_loaded;
 	boolean_t	ms_loading;
+	boolean_t	ms_rebuilding;
 
 	int64_t		ms_deferspace;	/* sum of ms_defermap[] space	*/
 	uint64_t	ms_weight;	/* weight vs. others in group	*/
